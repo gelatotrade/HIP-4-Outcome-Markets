@@ -12,7 +12,7 @@ import math
 import random
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .hl_client import L2Book, L2Level, OutcomeAsset
 from .pricing import prob_above
@@ -87,7 +87,7 @@ def synthetic_universe() -> tuple[list[OutcomeAsset], dict[str, L2Book], dict[st
     books: dict[str, L2Book] = {}
     mids: dict[str, float] = {"BTC": spot, "ETH": 3_400.0}
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expiries = [
         ("daily", now.replace(hour=6, minute=0, second=0, microsecond=0) + timedelta(days=1), "1d"),
         ("weekly", now.replace(hour=6, minute=0, second=0, microsecond=0) + timedelta(days=7), "7d"),

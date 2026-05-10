@@ -6,11 +6,11 @@
 //!
 //! 2. **Control plane** — HTTP on `EXECUTOR_CONTROL_HOST:PORT`.
 //!    Endpoints:
-//!       GET  /healthz          liveness
-//!       GET  /status           BookSnapshot JSON
-//!       POST /kill             engages kill-switch (no new orders)
-//!       POST /resume           lifts the kill-switch
-//!       POST /flatten          cancels every open leg + closes perp
+//!    - GET  /healthz   liveness
+//!    - GET  /status    BookSnapshot JSON
+//!    - POST /kill      engages kill-switch (no new orders)
+//!    - POST /resume    lifts the kill-switch
+//!    - POST /flatten   cancels every open leg + closes perp
 //!
 //! The Python signal engine writes to the UDS; humans operate via HTTP.
 
@@ -121,36 +121,30 @@ pub async fn spawn_control_http(
         .and(warp::get())
         .map(|| warp::reply::json(&serde_json::json!({"status": "ok"})));
 
-    let status = warp::path("status").and(warp::get()).map(move || {
-        warp::reply::json(&book_status.snapshot())
-    });
+    let status = warp::path("status")
+        .and(warp::get())
+        .map(move || warp::reply::json(&book_status.snapshot()));
 
     let kill_sw = switches.killed.clone();
-    let kill = warp::path("kill")
-        .and(warp::post())
-        .map(move || {
-            *kill_sw.lock() = true;
-            warn!("kill-switch ENGAGED");
-            warp::reply::json(&serde_json::json!({"killed": true}))
-        });
+    let kill = warp::path("kill").and(warp::post()).map(move || {
+        *kill_sw.lock() = true;
+        warn!("kill-switch ENGAGED");
+        warp::reply::json(&serde_json::json!({"killed": true}))
+    });
 
     let resume_sw = switches.killed.clone();
-    let resume = warp::path("resume")
-        .and(warp::post())
-        .map(move || {
-            *resume_sw.lock() = false;
-            info!("kill-switch lifted");
-            warp::reply::json(&serde_json::json!({"killed": false}))
-        });
+    let resume = warp::path("resume").and(warp::post()).map(move || {
+        *resume_sw.lock() = false;
+        info!("kill-switch lifted");
+        warp::reply::json(&serde_json::json!({"killed": false}))
+    });
 
     let flatten_sw = switches.flatten.clone();
-    let flatten = warp::path("flatten")
-        .and(warp::post())
-        .map(move || {
-            *flatten_sw.lock() = true;
-            warn!("flatten requested");
-            warp::reply::json(&serde_json::json!({"flatten": true}))
-        });
+    let flatten = warp::path("flatten").and(warp::post()).map(move || {
+        *flatten_sw.lock() = true;
+        warn!("flatten requested");
+        warp::reply::json(&serde_json::json!({"flatten": true}))
+    });
 
     let routes = healthz.or(status).or(kill).or(resume).or(flatten);
     let addr: std::net::SocketAddr = format!("{host}:{port}").parse()?;

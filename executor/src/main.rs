@@ -33,9 +33,14 @@ struct Cli {
 }
 
 fn dry_run_from_env() -> bool {
-    std::env::var("DRY_RUN").map(|v| {
-        matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on")
-    }).unwrap_or(false)
+    std::env::var("DRY_RUN")
+        .map(|v| {
+            matches!(
+                v.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }
 
 fn init_tracing() {
@@ -64,7 +69,8 @@ async fn main() -> Result<()> {
         cfg.control_port,
         book.clone(),
         switches.clone(),
-    ).await?;
+    )
+    .await?;
 
     let (tx, rx) = mpsc::channel::<Signal>(1024);
     spawn_signal_listener(cfg.signal_socket.clone(), tx).await?;
@@ -110,7 +116,8 @@ async fn handle_signal(
     if sig.ttl_ms > 0 {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64).unwrap_or(0);
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
         if now_ms > sig.ts_ms + sig.ttl_ms {
             warn!(id = %sig.id, "signal expired (ttl)");
             return Ok(());
@@ -137,7 +144,9 @@ async fn handle_signal(
         p: sig.px.clone(),
         s: size_str.clone(),
         r: false,
-        t: OrderType::Limit { limit: LimitOrderType { tif: Tif::Ioc } },
+        t: OrderType::Limit {
+            limit: LimitOrderType { tif: Tif::Ioc },
+        },
     };
 
     // Hedge order — opposite-side perp at market-ish price (we leave price
@@ -148,7 +157,9 @@ async fn handle_signal(
         p: "0".into(), // placeholder; in practice the engine fills px from BTC mid
         s: format!("{:.4}", sig.perp_delta_btc.abs()),
         r: false,
-        t: OrderType::Limit { limit: LimitOrderType { tif: Tif::Ioc } },
+        t: OrderType::Limit {
+            limit: LimitOrderType { tif: Tif::Ioc },
+        },
     };
 
     let action = Action::Order {
@@ -170,7 +181,11 @@ async fn handle_signal(
                 coin: format!("#{}", sig.outcome_asset),
                 size: sig.notional_usd,
                 avg_px: sig.px.parse().unwrap_or(0.0),
-                direction: if sig.side.eq_ignore_ascii_case("Y") { 1 } else { -1 },
+                direction: if sig.side.eq_ignore_ascii_case("Y") {
+                    1
+                } else {
+                    -1
+                },
             });
             book.add_perp_btc(sig.perp_delta_btc);
             info!(id = %sig.id, status = %resp.status, "submitted");

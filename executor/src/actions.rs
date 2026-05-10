@@ -109,9 +109,14 @@ mod tests {
             p: "30000".into(),
             s: "0.1".into(),
             r: false,
-            t: OrderType::Limit { limit: LimitOrderType { tif: Tif::Gtc } },
+            t: OrderType::Limit {
+                limit: LimitOrderType { tif: Tif::Gtc },
+            },
         };
-        let action = Action::Order { orders: vec![order], grouping: "na".into() };
+        let action = Action::Order {
+            orders: vec![order],
+            grouping: "na".into(),
+        };
         let json = serde_json::to_string(&action).unwrap();
         // Order matters for the wire format expected by /exchange
         assert!(json.contains("\"type\":\"order\""));
@@ -137,8 +142,14 @@ mod tests {
     fn action_hash_is_deterministic() {
         let action = Action::Order {
             orders: vec![OrderRequest {
-                a: 5, b: false, p: "0.42".into(), s: "100".into(), r: false,
-                t: OrderType::Limit { limit: LimitOrderType { tif: Tif::Ioc } },
+                a: 5,
+                b: false,
+                p: "0.42".into(),
+                s: "100".into(),
+                r: false,
+                t: OrderType::Limit {
+                    limit: LimitOrderType { tif: Tif::Ioc },
+                },
             }],
             grouping: "na".into(),
         };

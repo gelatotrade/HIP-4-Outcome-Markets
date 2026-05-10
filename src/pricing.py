@@ -41,18 +41,42 @@ def prob_above(spot: float, strike: float, sigma: float, t_years: float) -> floa
 
 
 def iv_from_prob(prob: float, spot: float, strike: float, t_years: float) -> float | None:
-    """Invert prob_above to recover the implied vol."""
+    """Invert prob_above to recover the implied vol.
+
+    Under zero-drift GBM:
+      * ATM (S == K) is degenerate — prob_above ≤ 0.5 for every σ.
+      * OTM (S < K) has prob_above non-monotonic in σ with a maximum at
+        σ_max = sqrt(-2 ln(S/K) / T). We bracket on [ε, σ_max] and pick
+        the increasing-branch solution (matches the perp's vol scale).
+      * ITM (S > K) is monotonically decreasing in σ. We bracket on
+        [ε, 20].
+
+    Returns None when the quote is unreachable for any positive σ.
+    """
     if t_years <= 0 or spot <= 0 or strike <= 0:
         return None
     p = max(min(prob, 1.0 - EPS_PROB), EPS_PROB)
-    if abs(spot - strike) < 1e-9 and abs(p - 0.5) < 1e-6:
-        return 0.0  # at-the-money 50% is degenerate
+
+    if abs(spot - strike) < 1e-6:
+        return None
+
+    if spot < strike:
+        # OTM YES (call). σ_max where prob_above peaks.
+        sigma_max = math.sqrt(max(0.0, -2.0 * math.log(spot / strike) / t_years))
+        # Slightly inside the optimum so we are on the strictly-increasing branch.
+        upper = max(1e-3, sigma_max * 0.999)
+        peak_prob = prob_above(spot, strike, sigma_max, t_years)
+        if p > peak_prob:
+            return None
+    else:
+        # ITM YES — monotonically decreasing.
+        upper = 20.0
 
     def f(sig: float) -> float:
         return prob_above(spot, strike, sig, t_years) - p
 
     try:
-        return float(brentq(f, 1e-4, 5.0, maxiter=128))
+        return float(brentq(f, 1e-4, upper, maxiter=128))
     except ValueError:
         return None
 

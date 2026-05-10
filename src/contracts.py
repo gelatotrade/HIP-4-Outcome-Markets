@@ -12,7 +12,7 @@ already exposes. When real `priceTernary` markets ship, the same
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .hl_client import L2Book, OutcomeAsset
 
@@ -22,7 +22,7 @@ def _parse_expiry(expiry: str) -> datetime | None:
     if not expiry:
         return None
     try:
-        return datetime.strptime(expiry, "%Y%m%d-%H%M").replace(tzinfo=timezone.utc)
+        return datetime.strptime(expiry, "%Y%m%d-%H%M").replace(tzinfo=UTC)
     except ValueError:
         return None
 
@@ -42,7 +42,7 @@ class BinaryMarket:
 
     @property
     def t_to_expiry_years(self) -> float:
-        secs = (self.expiry - datetime.now(timezone.utc)).total_seconds()
+        secs = (self.expiry - datetime.now(UTC)).total_seconds()
         return max(secs, 0.0) / (365.25 * 24 * 3600)
 
     @property
@@ -87,7 +87,7 @@ class TernaryMarket:
 
     @property
     def t_to_expiry_years(self) -> float:
-        secs = (self.expiry - datetime.now(timezone.utc)).total_seconds()
+        secs = (self.expiry - datetime.now(UTC)).total_seconds()
         return max(secs, 0.0) / (365.25 * 24 * 3600)
 
 

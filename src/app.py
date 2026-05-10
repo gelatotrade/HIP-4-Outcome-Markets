@@ -16,7 +16,7 @@ import argparse
 from datetime import datetime
 
 import dash
-from dash import Input, Output, State, dash_table, dcc, html
+from dash import Input, Output, dash_table, dcc, html
 from flask import jsonify
 
 from .config import CONFIG
