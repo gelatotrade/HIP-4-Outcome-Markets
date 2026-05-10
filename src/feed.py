@@ -1,0 +1,193 @@
+"""Glue between HLClient / simulator and the strategy layer.
+
+`Feed.snapshot()` returns a fully-populated `MarketSnapshot` regardless of
+whether the live API is reachable.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import time
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from .contracts import (
+    BinaryMarket,
+    TernaryMarket,
+    assemble_binary_markets,
+    synthesise_ternaries,
+)
+from .hl_client import HLClient, L2Book
+from .pricing import (
+    BinaryEdge,
+    StripDensity,
+    TernaryEdge,
+    butterfly_density,
+    evaluate_binary,
+    evaluate_ternary,
+)
+from .simulator import synthetic_universe
+
+log = logging.getLogger(__name__)
+
+REALIZED_VOL_DEFAULT = 0.65   # annualised; refined from spot history when available
+
+
+@dataclass
+class MarketSnapshot:
+    ts: float
+    spot: float
+    sigma: float
+    binaries: list[BinaryMarket]
+    ternaries: list[TernaryMarket]
+    binary_edges: list[BinaryEdge]
+    ternary_edges: list[TernaryEdge]
+    densities: dict[str, StripDensity] = field(default_factory=dict)  # key: "underlying@expiry"
+    source: str = "live"
+    error: str | None = None
+
+
+class Feed:
+    def __init__(self, *, allow_live: bool = True) -> None:
+        self._client = HLClient() if allow_live else None
+        self._spot_history: list[tuple[float, float]] = []
+        self._last_snapshot: MarketSnapshot | None = None
+
+    # -- vol estimate ----------------------------------------------------
+
+    def _push_spot(self, spot: float) -> None:
+        self._spot_history.append((time.time(), spot))
+        cutoff = time.time() - 6 * 3600
+        self._spot_history = [(t, p) for t, p in self._spot_history if t >= cutoff]
+
+    def _realized_vol(self) -> float:
+        if len(self._spot_history) < 12:
+            return REALIZED_VOL_DEFAULT
+        times = np.array([t for t, _ in self._spot_history])
+        prices = np.array([p for _, p in self._spot_history])
+        log_rets = np.diff(np.log(prices))
+        dts = np.diff(times)
+        # annualised
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inst = log_rets / np.sqrt(np.where(dts > 0, dts, 1.0))
+        if not np.isfinite(inst).any():
+            return REALIZED_VOL_DEFAULT
+        return float(np.sqrt(365.25 * 24 * 3600) * np.nanstd(inst))
+
+    # -- main entry ------------------------------------------------------
+
+    def snapshot(self) -> MarketSnapshot:
+        assets = []
+        books: dict[str, L2Book] = {}
+        spot: float | None = None
+        source = "live"
+        error: str | None = None
+
+        if self._client is not None:
+            try:
+                assets = self._client.outcome_meta()
+                if assets:
+                    for a in assets:
+                        book = self._client.l2_book(a.coin)
+                        if book is not None:
+                            books[a.coin] = book
+                spot = self._client.perp_mid("BTC")
+            except Exception as exc:                       # noqa: BLE001 — defensive
+                error = f"live fetch failed: {exc}"
+                log.warning(error)
+
+        had_live_assets = bool(assets)
+        had_live_spot = spot is not None
+        if not assets or spot is None:
+            sim_assets, sim_books, sim_mids = synthetic_universe()
+            if not had_live_assets:
+                assets = sim_assets
+                books = sim_books
+            if not had_live_spot:
+                spot = sim_mids["BTC"]
+            if not had_live_assets and not had_live_spot:
+                source = "simulated"
+            else:
+                source = "partial"
+            if self._client is not None and self._client.last_error:
+                error = self._client.last_error
+
+        self._push_spot(spot)
+        sigma = self._realized_vol()
+
+        binaries = assemble_binary_markets(assets)
+        for b in binaries:
+            b.yes_book = books.get(b.yes.coin)
+            b.no_book = books.get(b.no.coin)
+
+        ternaries = synthesise_ternaries(binaries)
+
+        binary_edges = [
+            evaluate_binary(
+                spot=spot,
+                sigma=sigma,
+                target=b.target,
+                expiry_iso=b.expiry.isoformat(),
+                t_years=b.t_to_expiry_years,
+                yes_mid=b.yes_mid, yes_bid=b.yes_bid, yes_ask=b.yes_ask,
+                no_mid=b.no_mid, no_bid=b.no_bid, no_ask=b.no_ask,
+            )
+            for b in binaries
+        ]
+
+        ternary_edges = []
+        for t in ternaries:
+            low = t.down
+            high = t.up
+            if low is None or high is None:
+                continue
+            ternary_edges.append(
+                evaluate_ternary(
+                    spot=spot,
+                    sigma=sigma,
+                    k_low=t.k_low,
+                    k_high=t.k_high,
+                    expiry_iso=t.expiry.isoformat(),
+                    t_years=t.t_to_expiry_years,
+                    market_yes_low=low.yes_mid,
+                    market_yes_high=high.yes_mid,
+                    ask_yes_low=low.yes_ask, ask_no_low=low.no_ask,
+                    ask_yes_high=high.yes_ask, ask_no_high=high.no_ask,
+                )
+            )
+
+        densities: dict[str, StripDensity] = {}
+        by_expiry: dict[tuple[str, str], list[BinaryMarket]] = {}
+        for b in binaries:
+            if b.yes_mid is None:
+                continue
+            by_expiry.setdefault((b.underlying, b.expiry.isoformat()), []).append(b)
+        for (under, exp_iso), strip in by_expiry.items():
+            if len(strip) < 2:
+                continue
+            ks = [b.target for b in strip]
+            ps = [b.yes_mid for b in strip if b.yes_mid is not None]
+            if len(ks) != len(ps):
+                continue
+            densities[f"{under}@{exp_iso}"] = butterfly_density(ks, ps)
+
+        snap = MarketSnapshot(
+            ts=time.time(),
+            spot=spot,
+            sigma=sigma,
+            binaries=binaries,
+            ternaries=ternaries,
+            binary_edges=binary_edges,
+            ternary_edges=ternary_edges,
+            densities=densities,
+            source=source,
+            error=error,
+        )
+        self._last_snapshot = snap
+        return snap
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
