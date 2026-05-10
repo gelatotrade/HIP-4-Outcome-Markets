@@ -1,24 +1,25 @@
 """Thin Hyperliquid Info-endpoint client for HIP-4 outcome markets.
 
-Endpoints used (all `POST https://api.hyperliquid.xyz/info`):
+Public endpoints (no auth needed):
     {"type": "meta"}                       perp universe
     {"type": "spotMeta"}                   spot universe
-    {"type": "allMids"}                    every mid in one shot (incl. outcomes)
+    {"type": "allMids"}                    every mid in one shot
     {"type": "outcomeMeta"}                HIP-4 outcome universe
     {"type": "outcomeMetaAndAssetCtxs"}    outcome universe + per-asset ctx
     {"type": "l2Book", "coin": "@N"|"#N"}  L2 snapshot for any asset
 
-The shape of `outcomeMeta` is not yet pinned down in public docs; we therefore
-treat the response defensively and look for the same keys Hyperliquid uses for
-spot / perps (`universe`, `tokens`, `description`, `name`).
-
-Falls back to `simulator.synthetic_universe()` when the network is blocked or
-the endpoint returns nothing usable, so the dashboard always boots.
+Wallet-scoped endpoints (require `HYPERLIQUID_USER_ADDRESS`; the
+`HYPERLIQUID_API_WALLET_KEY` private key is used by the optional execution
+path to sign orders via EIP-712 — this client only reads):
+    {"type": "clearinghouseState", "user": "0x..."}
+    {"type": "openOrders",        "user": "0x..."}
+    {"type": "userFills",         "user": "0x..."}
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,6 +28,10 @@ import httpx
 
 INFO_URL = "https://api.hyperliquid.xyz/info"
 DEFAULT_TIMEOUT = 6.0
+
+# Env-var contract — see README.
+ENV_USER_ADDRESS = "HYPERLIQUID_USER_ADDRESS"        # 0x... (read user state)
+ENV_WALLET_KEY = "HYPERLIQUID_API_WALLET_KEY"        # 0x... (sign orders; reserved for execution)
 
 log = logging.getLogger(__name__)
 
@@ -92,9 +97,17 @@ def _parse_description(desc: str) -> dict[str, Any]:
 
 
 class HLClient:
-    def __init__(self, base_url: str = INFO_URL, timeout: float = DEFAULT_TIMEOUT):
+    def __init__(
+        self,
+        base_url: str = INFO_URL,
+        timeout: float = DEFAULT_TIMEOUT,
+        *,
+        user_address: str | None = None,
+    ) -> None:
         self._client = httpx.Client(timeout=timeout)
         self._base_url = base_url
+        self.user_address = user_address or os.environ.get(ENV_USER_ADDRESS)
+        self.has_wallet_key = bool(os.environ.get(ENV_WALLET_KEY))
         self.last_error: str | None = None
 
     def _post(self, payload: dict[str, Any]) -> Any:
@@ -203,6 +216,18 @@ class HLClient:
             asks=_to_levels(asks_raw),
             ts_ms=int(raw.get("time", time.time() * 1000)),
         )
+
+    # -- wallet-scoped reads --------------------------------------------
+
+    def clearinghouse_state(self) -> dict[str, Any] | None:
+        if not self.user_address:
+            return None
+        return self._post({"type": "clearinghouseState", "user": self.user_address})
+
+    def user_open_orders(self) -> list[Any] | None:
+        if not self.user_address:
+            return None
+        return self._post({"type": "openOrders", "user": self.user_address})
 
     def close(self) -> None:
         self._client.close()
