@@ -1,10 +1,21 @@
 name: CI
 
+# Triggers
+# - PR to main: blocks the merge button, runs unit tests + lint
+# - push to main: post-merge confirmation
+# Push to feature branches (claude/**, etc.) does NOT trigger the workflow,
+# so working commits don't spam failure emails before a PR is opened.
 on:
-  push:
-    branches: [main, "claude/**"]
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-flight runs of the same ref when a new commit lands —
+# eliminates duplicate emails on rapid push.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   python:
@@ -59,24 +70,8 @@ jobs:
       - name: test
         run: cargo test --release
 
-  docker:
-    name: Docker images build
-    runs-on: ubuntu-latest
-    needs: [python, rust]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Build dashboard image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          push: false
-          tags: hip4-dashboard:ci
-      - name: Build executor image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./executor
-          file: ./executor/Dockerfile
-          push: false
-          tags: hip4-executor:ci
+# NOTE: Docker images are built locally (`make docker-build`) before
+# deployment, not in CI. Docker build is a deployment concern; CI here
+# is for code correctness only. If you want CI to also build images,
+# add a `docker.yml` workflow with `workflow_dispatch` so it runs only
+# on demand and never emails on failure for normal PRs.
