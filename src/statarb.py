@@ -66,6 +66,8 @@ class StatArbResult:
     signals: list[Signal] = field(default_factory=list)
     expected_pnl_day_total: float = 0.0
     n_active: int = 0
+    perp_hedge_btc: float = 0.0          # sum of delta-hedges across active legs
+    gross_notional_usd: float = 0.0      # |position| × notional summed
 
 
 def evaluate_book(
@@ -97,10 +99,11 @@ def evaluate_book(
         delta = digital_delta(spot, b.target, iv, T)
         gamma = digital_gamma(spot, b.target, iv, T)
         vega = digital_vega(spot, b.target, iv, T)
-        # delta-hedge size: position pays $1 per contract; one "contract" = $1 notional
-        # so delta in $/$ × notional × hedge_ratio gives BTC notional we need to short
-        perp_hedge_usd = direction * delta * notional_per_leg * hedge_ratio
-        perp_hedge_units = -perp_hedge_usd / spot if spot > 0 else 0.0
+        # Delta-hedge: outcome PnL per $1 BTC move = direction * delta * N_contracts
+        # (with N_contracts = notional_per_leg, since each contract pays $1).
+        # A BTC perp position of p_btc has PnL = p_btc dollars per $1 BTC move,
+        # so the matching hedge is p_btc = -direction * delta * notional in BTC.
+        perp_hedge_units = -direction * delta * notional_per_leg * hedge_ratio
 
         carry_pos = expected_carry_per_day(
             spot=spot, strike=b.target, sigma_imp=iv, sigma_rv=sigma_rv, t_years=T,
@@ -122,4 +125,6 @@ def evaluate_book(
         if direction != 0:
             out.expected_pnl_day_total += expected
             out.n_active += 1
+            out.perp_hedge_btc += perp_hedge_units
+            out.gross_notional_usd += notional_per_leg
     return out

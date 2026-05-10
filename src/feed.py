@@ -29,7 +29,7 @@ from .pricing import (
     evaluate_binary,
     evaluate_ternary,
 )
-from .simulator import synthetic_universe
+from .simulator import current_realised_vol, synthetic_universe
 from .statarb import StatArbResult, evaluate_book
 
 log = logging.getLogger(__name__)
@@ -63,6 +63,7 @@ class Feed:
         history_len: int = HISTORY_DEFAULT,
         threshold_vol: float = 0.05,
         hedge_ratio: float = 1.0,
+        notional_per_leg: float = 10_000.0,
     ) -> None:
         self._client = HLClient() if allow_live and not csv_path else None
         self._csv = CSVReplay(csv_path) if csv_path else None
@@ -71,19 +72,23 @@ class Feed:
         self.vol_window_s = vol_window_s
         self.threshold_vol = threshold_vol
         self.hedge_ratio = hedge_ratio
+        self.notional_per_leg = notional_per_leg
         self._last_snapshot: MarketSnapshot | None = None
 
     # -- knobs settable from the dashboard -------------------------------
 
     def set_params(self, *, vol_window_s: float | None = None,
                    threshold_vol: float | None = None,
-                   hedge_ratio: float | None = None) -> None:
+                   hedge_ratio: float | None = None,
+                   notional_per_leg: float | None = None) -> None:
         if vol_window_s is not None:
             self.vol_window_s = vol_window_s
         if threshold_vol is not None:
             self.threshold_vol = threshold_vol
         if hedge_ratio is not None:
             self.hedge_ratio = hedge_ratio
+        if notional_per_leg is not None:
+            self.notional_per_leg = notional_per_leg
 
     # -- vol estimate ----------------------------------------------------
 
@@ -146,7 +151,12 @@ class Feed:
                 error = self._client.last_error
 
         self._push_spot(spot)
-        sigma = self._realized_vol()
+        # In simulator mode, the spot tape is wall-clock-stamped while the
+        # simulator advances simulated seconds per call (fast_forward), so
+        # the rolling-window estimator can't see the true vol. Use the
+        # simulator's own σ instead. Live / CSV continue to use the tape.
+        sigma = current_realised_vol() if source in ("simulated", "partial") \
+            else self._realized_vol()
 
         binaries = assemble_binary_markets(assets)
         for b in binaries:
@@ -193,6 +203,7 @@ class Feed:
         statarb = evaluate_book(
             spot=spot, sigma_rv=sigma, binaries=binaries,
             threshold=self.threshold_vol, hedge_ratio=self.hedge_ratio,
+            notional_per_leg=self.notional_per_leg,
         )
 
         snap = MarketSnapshot(
