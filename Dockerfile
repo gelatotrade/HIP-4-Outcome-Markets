@@ -3,19 +3,28 @@ FROM python:3.11-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120
 
+# build-essential covers any source-build fallback for scipy/Pillow/etc.
+# curl is kept for the HEALTHCHECK probe.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        gcc \
+        g++ \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY pyproject.toml requirements.txt ./
-RUN pip install -r requirements.txt
+COPY requirements.txt ./
+RUN pip install --upgrade pip \
+ && pip install --retries 5 -r requirements.txt
 
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
 COPY scripts/ ./scripts/
-COPY README.md ./
 
 ENV DASHBOARD_HOST=0.0.0.0 \
     DASHBOARD_PORT=8050 \
@@ -24,7 +33,7 @@ ENV DASHBOARD_HOST=0.0.0.0 \
 
 EXPOSE 8050
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS http://localhost:8050/healthz || exit 1
 
 # gunicorn for production; thread workers cope with Dash's blocking callbacks.
