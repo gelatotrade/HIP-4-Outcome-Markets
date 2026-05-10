@@ -34,6 +34,21 @@ _STATE = _SimState()
 _RNG = random.Random(0xC0FFEE)
 
 
+def fast_forward(dt_seconds: float) -> None:
+    """Advance the simulator clock by `dt_seconds` for the next snapshot.
+
+    Used by the GIF renderer so each frame represents ~minute-scale market
+    motion rather than the real wall-clock delta between frame renders.
+    """
+    _STATE.last_ts = max(0.0, _STATE.last_ts - dt_seconds)
+
+
+def current_realised_vol() -> float:
+    """Expose the simulator's true σ — the dashboard's RV estimator
+    can't see simulated time, so it uses this in --no-live mode."""
+    return _STATE.realised_vol
+
+
 def _step_state() -> _SimState:
     now = time.time()
     dt = max(now - _STATE.last_ts, 1e-6)
