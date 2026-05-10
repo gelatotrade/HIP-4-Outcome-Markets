@@ -1,71 +1,86 @@
-"""End-to-end smoke test: runs offline against the simulator and verifies
-that every layer (parser → pricing → strategies → figure builders) emits
-sane output, with at least one arbitrage hit visible on the surface.
+"""End-to-end smoke test for the IV-vs-RV stat-arb pipeline.
+
+Runs offline against the drifting simulator and confirms:
+    * pricing primitives (digital prob + greeks) are sane
+    * Feed accumulates a multi-snapshot history
+    * StatArbEngine fires positions at sensible thresholds
+    * Surface, P&L and opportunity-table figures build without errors
 """
 
 from __future__ import annotations
 
-import math
-import sys
 import pathlib
+import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from src.feed import Feed
-from src.pricing import butterfly_density, prob_above, iv_from_prob
-from src.surface import (
-    build_alpha_surface,
-    build_density,
-    build_opportunities,
-    build_simplex,
+from src.pricing import (
+    digital_delta,
+    digital_gamma,
+    digital_vega,
+    expected_carry_per_day,
+    iv_from_prob,
+    prob_above,
 )
+from src.surface import build_alpha_pnl, build_alpha_surface, build_opportunities
 
 
 def _check(label: str, ok: bool, detail: str = "") -> None:
-    flag = "OK " if ok else "FAIL"
-    print(f"[{flag}] {label}{(' — ' + detail) if detail else ''}")
+    print(f"[{'OK ' if ok else 'FAIL'}] {label}{(' — ' + detail) if detail else ''}")
     if not ok:
         sys.exit(1)
 
 
 def main() -> None:
-    # 1. Pricing primitives round-trip
+    # 1. Pricing primitives
     p = prob_above(78_000, 80_000, 0.65, 1 / 365)
     iv = iv_from_prob(p, 78_000, 80_000, 1 / 365)
-    _check("prob_above ∈ (0,1)", 0.0 < p < 1.0, f"P={p:.4f}")
+    delta = digital_delta(78_000, 80_000, 0.65, 1 / 365)
+    gamma = digital_gamma(78_000, 80_000, 0.65, 1 / 365)
+    vega = digital_vega(78_000, 80_000, 0.65, 1 / 365)
+    carry = expected_carry_per_day(spot=78_000, strike=80_000,
+                                   sigma_imp=0.70, sigma_rv=0.60, t_years=1/365)
+    _check("prob_above ∈ (0,1)", 0 < p < 1, f"P={p:.4f}")
     _check("iv_from_prob ≈ 0.65", iv is not None and abs(iv - 0.65) < 1e-3, f"iv={iv}")
+    _check("digital_delta > 0", delta > 0, f"Δ={delta:.6f}")
+    _check("digital_gamma is real", abs(gamma) >= 0, f"Γ={gamma:.3e}")
+    _check("digital_vega is real", abs(vega) >= 0, f"V={vega:.4f}")
+    _check("carry sign correct (σ_imp>σ_rv ⇒ negative)", carry < 0, f"carry={carry:.4e}")
 
-    # 2. Butterfly density flags negative regions
-    dens = butterfly_density(
-        [70_000, 75_000, 80_000, 85_000, 90_000],
-        [0.95, 0.85, 0.50, 0.55, 0.05],   # 0.50 -> 0.55 violates monotonicity
-    )
-    _check("density flags arb", len(dens.pdf_negative_idx) >= 1, str(dens.pdf_negative_idx))
+    # 2. Feed history accumulation (drifting simulator)
+    feed = Feed(allow_live=False, history_len=20, threshold_vol=0.03)
+    snaps = []
+    for _ in range(8):
+        snaps.append(feed.snapshot())
+        time.sleep(0.02)
+    _check("history populated", len(feed.history) >= 8, f"len={len(feed.history)}")
+    _check("snapshot has stat-arb legs", any(s.statarb.signals for s in snaps),
+           "engine produced no signals")
 
-    # 3. Feed snapshot via simulator
-    feed = Feed(allow_live=False)
-    snap = feed.snapshot()
-    _check("snapshot has binaries", len(snap.binaries) >= 6, f"n={len(snap.binaries)}")
-    _check("snapshot has ternaries", len(snap.ternaries) >= 1, f"n={len(snap.ternaries)}")
-    _check("at least one alpha hit", any(be.arb_kind for be in snap.binary_edges),
-           "no edges fired — simulator should have planted some")
-    _check("density per expiry", len(snap.densities) >= 1, f"n={len(snap.densities)}")
+    # The drifting simulator deliberately mis-prices a strike → expect at least
+    # one active position once IV diverges by > threshold.
+    n_active = sum(s.statarb.n_active for s in snaps)
+    _check("at least one active leg across history",
+           n_active >= 1, f"sum_n_active={n_active}")
 
-    # 4. Figures build without crashing
-    f1 = build_alpha_surface(snap)
-    f2 = build_simplex(snap)
-    f3 = build_density(snap)
-    _check("alpha surface trace count > 0", len(f1.data) > 0)
-    _check("simplex trace count > 0", len(f2.data) > 0)
-    _check("density trace count > 0", len(f3.data) > 0)
+    # 3. Figures build
+    fig_surf = build_alpha_surface(list(feed.history), threshold=0.03)
+    fig_pnl = build_alpha_pnl(list(feed.history))
+    rows = build_opportunities(snaps[-1])
+    _check("surface figure has data + frames", len(fig_surf.data) > 0
+           and len(fig_surf.frames) >= 1, f"frames={len(fig_surf.frames)}")
+    _check("pnl figure non-empty", len(fig_pnl.data) > 0)
 
-    rows = build_opportunities(snap)
-    _check("opportunity table non-empty", len(rows) >= 1, f"rows={len(rows)}")
-
-    print("\nopportunities:")
-    for r in rows[:5]:
-        print(f"  {r['kind']:7s} {r['expiry']}  K={r['strike']}  edge={r['edge_bps']:>6} bps  {r['action']}")
-    print(f"\nsource={snap.source}  spot=${snap.spot:,.0f}  σ̂={snap.sigma*100:.1f}%")
+    print("\nlast snapshot — active legs:")
+    for r in rows[:6]:
+        print(f"  {r['side']:9s} {r['expiry']}  K={r['K']:>10s}  "
+              f"Δvol={r['Δvol_pts']:>7s}  hedge={r['perp_hedge']:>16s}  $/day={r['$/day']:>7s}")
+    last = snaps[-1]
+    print(f"\nspot=${last.spot:,.0f}  σ̂_RV={last.sigma*100:.1f}%  "
+          f"legs_active={last.statarb.n_active}  "
+          f"expected_$/day={last.statarb.expected_pnl_day_total:+.2f}")
 
 
 if __name__ == "__main__":

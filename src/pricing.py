@@ -58,6 +58,52 @@ def iv_from_prob(prob: float, spot: float, strike: float, t_years: float) -> flo
 
 
 # ---------------------------------------------------------------------------
+# Greeks of the digital P(S>K)  — used by the stat-arb engine
+# ---------------------------------------------------------------------------
+
+
+def digital_delta(spot: float, strike: float, sigma: float, t_years: float) -> float:
+    """∂P(S>K)/∂S = n(d2) / (S σ √T)."""
+    if t_years <= 0 or sigma <= 0 or spot <= 0:
+        return 0.0
+    d2 = (math.log(spot / strike) - 0.5 * sigma * sigma * t_years) / (sigma * math.sqrt(t_years))
+    return float(norm.pdf(d2) / (spot * sigma * math.sqrt(t_years)))
+
+
+def digital_gamma(spot: float, strike: float, sigma: float, t_years: float) -> float:
+    """∂²P(S>K)/∂S². Closed form: -n(d2)/(S²σ√T) × (d2/(σ√T) + 1)."""
+    if t_years <= 0 or sigma <= 0 or spot <= 0:
+        return 0.0
+    sq = sigma * math.sqrt(t_years)
+    d2 = (math.log(spot / strike) - 0.5 * sigma * sigma * t_years) / sq
+    return float(-norm.pdf(d2) / (spot * spot * sq) * (d2 / sq + 1.0))
+
+
+def digital_vega(spot: float, strike: float, sigma: float, t_years: float) -> float:
+    """∂P(S>K)/∂σ = n(d2) × ∂d2/∂σ."""
+    if t_years <= 0 or sigma <= 0 or spot <= 0:
+        return 0.0
+    sq = sigma * math.sqrt(t_years)
+    d2 = (math.log(spot / strike) - 0.5 * sigma * sigma * t_years) / sq
+    dd2_dsigma = -math.log(spot / strike) / (sigma * sq) - 0.5 * math.sqrt(t_years)
+    return float(norm.pdf(d2) * dd2_dsigma)
+
+
+def expected_carry_per_day(
+    *, spot: float, strike: float, sigma_imp: float, sigma_rv: float, t_years: float
+) -> float:
+    """Delta-hedged digital P&L per day per unit notional.
+
+    Standard BSM gamma carry: (½ · γ · S² · (σ_rv² − σ_imp²)) / 365 days.
+    Sign convention: long the option (long YES) ⇒ positive when σ_rv > σ_imp.
+    """
+    if t_years <= 0 or sigma_imp <= 0 or sigma_rv <= 0:
+        return 0.0
+    g = digital_gamma(spot, strike, sigma_imp, t_years)
+    return 0.5 * g * spot * spot * (sigma_rv * sigma_rv - sigma_imp * sigma_imp) / 365.0
+
+
+# ---------------------------------------------------------------------------
 # Bid/ask-aware no-arb checks
 # ---------------------------------------------------------------------------
 

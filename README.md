@@ -1,115 +1,103 @@
-# HIP-4 Outcome Markets — Alpha & Arbitrage Surface
+# HIP-4 Animated Alpha Surface
 
-Live alpha / arbitrage dashboard for Hyperliquid HIP-4 outcome contracts
-(launched on mainnet 2 May 2026). The surface paints every market on a
-moneyness × time-to-expiry grid and colour-codes profitable structures so
-mispricings literally light up.
+Statistical-arbitrage dashboard between Hyperliquid HIP-4 outcome markets
+and BTC perp. The surface animates in real time and re-renders on every
+slider change, so generated alpha is visible the moment a variable moves.
 
-```
-green   long edge   (alpha or risk-free buy)
-red     short edge
-yellow  parity violation  (Yes + No != 1)
-pink    butterfly arb     (negative risk-neutral density)
-grey    below threshold
-```
+![concept](docs/concept.png)
 
-## What HIP-4 actually trades
+## The thesis
 
-| Object | Today | Coming |
-|---|---|---|
-| `priceBinary` BTC daily / weekly | live | – |
-| `priceTernary` (Down / Range / Up around two strikes) | not yet on mainnet — synthesised here from a strip of binaries | will plug in straight from `outcomeMeta` |
-| Multi-outcome generic | spec exists, not live | same client surfaces it |
-
-Each binary settles to 1 if `BTC > targetPrice` at `expiry`, else 0.
-Yes and No tokens share one merged orderbook on the HyperCore CLOB.
-Prices float in `(0.001, 0.999)`.
-
-The contract spec lives in `description`:
+HIP-4 outcome contracts pay $1 if `BTC > K` at expiry, else 0. Their
+mid-price is therefore the risk-neutral probability `P(S_T > K)`. Inverting
+that probability under GBM gives an **implied volatility** `σ_imp`. The
+BTC perpetual tape gives a **realised volatility** `σ_rv`. The trade:
 
 ```
-class:priceBinary|underlying:BTC|expiry:20260503-0600|targetPrice:78213|period:1d
+   if σ_imp < σ_rv − threshold     →   LONG  outcome,  SHORT  BTC perp delta
+   if σ_imp > σ_rv + threshold     →   SHORT outcome,  LONG   BTC perp delta
 ```
 
-API access (`POST https://api.hyperliquid.xyz/info`):
+The book is delta-neutralised every tick using the digital delta
+`Δ = n(d₂)/(S σ √T)`. Expected daily P&L per position is the standard
+gamma-carry formula
 
-| `type` | purpose |
+```
+   E[P&L/day] = ½ · Γ · S² · (σ_rv² − σ_imp²) / 365
+```
+
+## The animated surface
+
+3D plot, refreshed on every tick:
+
+| Axis | Meaning |
 |---|---|
-| `outcomeMeta` | HIP-4 universe |
-| `outcomeMetaAndAssetCtxs` | universe + per-asset ctx |
-| `l2Book` with `coin: "#N"` | orderbook for one outcome side |
-| `allMids` | one-shot mids for everything |
-| `meta` | perp universe (used to pull BTC perp anchor) |
+| X | moneyness `K / S` |
+| Y | hours to expiry |
+| Z | implied volatility |
+| color | `σ_imp − σ_rv` mapped diverging green ↔ red |
+| reference plane | `σ_rv` (white, transparent) |
 
-## Strategies the surface highlights
+Sliders re-render the surface instantly:
 
-1. **Yes/No parity (binary).** `bid_yes + bid_no > 1` => sell both. `ask_yes + ask_no < 1` => buy both. Risk-free, zero open fees.
-2. **Strike monotonicity.** `P(BTC>K)` is non-increasing in `K`. Forward-difference density goes negative => butterfly arb between two strikes.
-3. **Ternary simplex.** `P(Down) + P(Range) + P(Up) = 1`. Synthesised from two binaries: `P(Range) = P(>K_low) - P(>K_high)`. When native ternaries ship, the *ask* sum below 1 is a direct buy-simplex risk-free.
-4. **GBM alpha vs perp anchor.** Invert the binary mid into implied vol; compare to short-window realized vol from the perp price tape. >50 bps gap => alpha leg.
-5. **Term-structure consistency.** Same strike across daily / weekly should be vol-coherent. Surface y-axis exposes calendar dislocations.
+- **RV window** (5–180 min) — period of the BTC perp tape used for `σ_rv`
+- **Threshold** (0.5–30 vol pts) — minimum gap before a position is taken
+- **Hedge ratio** (0×–2×) — multiplier on the digital delta when sizing
+  the perp hedge
 
-The first three are *strict* no-arb conditions; the last two are *statistical* edges. Both colour the same surface.
-
-## How the surface is computed
-
-For every binary `(target K, expiry T)`:
-
-- `fair_yes = N(d2)` with `S = BTC perp mid`, `sigma = realized vol`, `T = time to expiry in years`
-- `edge_bps = (fair_yes - market_yes_mid) * 10_000`
-- `iv = brentq(sigma -> P(S>K, sigma) - market_mid)`
-
-For every (underlying, expiry) strip with `>= 2` strikes, the
-risk-neutral density is the forward difference of the digitals:
-
-```
-pdf[i] = (P_above[i] - P_above[i+1]) / (K[i+1] - K[i])
-```
-
-Negative `pdf[i]` is a hard butterfly arbitrage between strikes.
-
-For each ternary `(K_low, K_high, expiry)` the simplex point is
-`(P_down, P_range, P_up)`. The Plotly ternary plot draws every market
-point connected to its GBM-fair counterpart so the alpha vector is
-immediately visible.
+A ▶ Play button animates through the last 60 ticks; the time slider scrubs
+through history. Below the surface a P&L panel shows cumulative
+theoretical alpha, $/day, and active legs over the session.
 
 ## Run
 
 ```bash
 pip install -r requirements.txt
 
-# Live mode (calls api.hyperliquid.xyz):
-python -m src.app --port 8050
+# Live (uses HYPERLIQUID_USER_ADDRESS for user-state reads;
+# HYPERLIQUID_API_WALLET_KEY would gate execution if enabled):
+export HYPERLIQUID_USER_ADDRESS=0xYourAddress
+export HYPERLIQUID_API_WALLET_KEY=0xPrivateKeyOfYourApiSubaccount
+python -m src.app
 
-# Offline / demo mode (uses the simulator, planted mispricings):
-python -m src.app --port 8050 --no-live
+# Replay a CSV captured offline by you (see below):
+python -m src.app --csv data/
+
+# Pure offline demo (drifting synthetic universe):
+python -m src.app --no-live
 ```
 
-Open http://127.0.0.1:8050. The page auto-refreshes every 2 s by default
-(`--refresh-ms`). The status bar shows `source=live | partial | simulated`
-so you always know what you're looking at; if the API blocks or returns
-nothing, the simulator transparently keeps the surface alive.
+Open http://127.0.0.1:8050.
+
+## Data capture (local, for the user only)
+
+`scripts/fetch_hl.py` is a stdlib-only script that polls the public
+Hyperliquid info endpoint and writes two CSVs (`outcomes.csv`,
+`perp.csv`) into `--out-dir`. Run it on a host with internet access and
+hand the directory to the dashboard via `--csv`:
+
+```bash
+python scripts/fetch_hl.py --out-dir data/ --interval 5 --duration 600
+```
+
+This is **not** how the production system runs — only how you pre-capture
+a tape for replay/development. The dashboard itself talks straight to
+`api.hyperliquid.xyz` once `HYPERLIQUID_USER_ADDRESS` is set.
 
 ## Layout
 
-- `src/hl_client.py` — `POST /info` client; defensive parsing of `outcomeMeta`
-- `src/contracts.py` — `BinaryMarket` / `TernaryMarket` and the binary→ternary synthesiser
-- `src/pricing.py` — GBM digitals, IV inversion, butterfly density, per-leg edge structs
-- `src/simulator.py` — synthetic HIP-4 universe with two planted mispricings (smoke + offline demo)
-- `src/feed.py` — orchestrates client + pricing into a `MarketSnapshot`
-- `src/surface.py` — Plotly figure builders (3D alpha surface, ternary simplex, density bars)
-- `src/app.py` — Dash entrypoint
-- `scripts/smoke.py` — end-to-end check; run before committing
-
-## Caveats
-
-- Public Hyperliquid REST is rate-limited at ~100 req/min. The dashboard
-  fans out one `l2Book` request per outcome side per refresh, so for a
-  large universe widen `--refresh-ms` or batch via `outcomeMetaAndAssetCtxs`.
-- The realized-vol estimate uses only spot prices captured during the
-  current session (rolling 6 h window). Wire in `candleSnapshot` for
-  longer history if you want stationary IV-vs-RV signals.
-- The synthetic ternary uses the YES leg of the K_high binary as a proxy
-  for a native UP token; when Hyperliquid ships `priceTernary`, the
-  `synthesise_ternaries` call in `feed.py` is the only thing that needs
-  to fork.
+```
+src/
+  hl_client.py     /info client; reads outcomeMeta, l2Book, allMids
+  contracts.py     BinaryMarket / TernaryMarket
+  pricing.py       prob_above, iv_from_prob, digital Δ/Γ/Vega, carry
+  statarb.py       IV-vs-RV signal → direction, hedge, expected $/day
+  feed.py          orchestrates client / CSV / simulator + history
+  simulator.py     drifting synthetic universe (offline mode)
+  data_loader.py   CSV replay
+  surface.py       animated 3D surface + cumulative-alpha panel
+  app.py           Dash entrypoint with sliders
+scripts/
+  fetch_hl.py      stdlib-only data capture (you run, dashboard replays)
+  smoke.py         end-to-end check
+```
