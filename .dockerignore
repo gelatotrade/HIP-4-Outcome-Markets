@@ -1,0 +1,29 @@
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage*
+
+# Rust artefacts (executor/Dockerfile copies its own context)
+executor/target/
+
+# Captured tapes / generated GIFs (not needed inside the image)
+data/
+docs/*.gif
+docs/*.png
+docs/*.tmp
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local env (never bake secrets into images)
+.env

@@ -18,7 +18,6 @@ use executor::config::Config;
 use executor::ipc::{spawn_control_http, spawn_signal_listener, Signal, Switches};
 use executor::risk::{check, ProposedLeg};
 use executor::state::{Book, LegState};
-use parking_lot::Mutex;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -200,6 +199,5 @@ async fn handle_signal(
     if *switches.flatten.lock() {
         warn!("flatten flag is set — manual cancel required (auto-cancel TODO)");
     }
-    let _ = Mutex::new(()); // silence unused-import lint when in dry-run only mode
     Ok(())
 }
