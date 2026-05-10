@@ -86,12 +86,20 @@ def synthetic_universe() -> tuple[list[OutcomeAsset], dict[str, L2Book], dict[st
             target = round(spot * m, 0)
             t_years = max((expiry - now).total_seconds() / (365.25 * 24 * 3600), 1e-6)
 
-            # Market-implied vol = realised + structural mispricing on K=1.01
-            iv_market = state.realised_vol
-            if abs(m - 1.01) < 1e-6:
-                iv_market += state.iv_offset                  # the alpha leg
+            # Realistic vol surface: smile + term structure + structural mispricing
+            # Smile: OTM puts richer (downside skew typical for BTC)
+            log_money = math.log(m)
+            smile = 1.20 * log_money * log_money - 0.45 * log_money  # convex + skew
+            term_factor = 0.85 if tag == "weekly" else 1.0
+            iv_market = state.realised_vol * term_factor + smile
+
+            # Mean-reverting alpha legs that breathe (visible in animation)
+            if tag == "daily" and abs(m - 1.01) < 1e-6:
+                iv_market += state.iv_offset * 1.5
+            if tag == "daily" and abs(m - 0.97) < 1e-6:
+                iv_market -= state.iv_offset * 0.8
             if tag == "weekly" and abs(m - 1.05) < 1e-6:
-                iv_market -= 0.08                              # persistent under-priced wing
+                iv_market -= 0.18                              # persistent under-priced wing
             iv_market = max(0.10, min(2.0, iv_market))
 
             fair_yes = prob_above(spot, target, iv_market, t_years)

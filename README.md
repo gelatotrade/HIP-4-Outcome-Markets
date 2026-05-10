@@ -4,7 +4,8 @@ Statistical-arbitrage dashboard between Hyperliquid HIP-4 outcome markets
 and BTC perp. The surface animates in real time and re-renders on every
 slider change, so generated alpha is visible the moment a variable moves.
 
-![concept](docs/concept.png)
+![alpha surface](docs/surface.png)
+![generated alpha](docs/pnl.png)
 
 ## The thesis
 
