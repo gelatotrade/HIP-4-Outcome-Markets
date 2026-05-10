@@ -11,7 +11,6 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from .contracts import BinaryMarket, _parse_expiry, assemble_binary_markets, synthesise_ternaries
 from .hl_client import L2Book, L2Level, OutcomeAsset
 
 

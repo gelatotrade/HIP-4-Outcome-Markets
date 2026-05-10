@@ -48,7 +48,10 @@ impl Network {
 fn parse_hex_address(s: &str) -> Result<[u8; 20]> {
     let cleaned = s.trim_start_matches("0x");
     if cleaned.len() != 40 {
-        return Err(anyhow!("address must be 20 bytes hex (got {} chars)", cleaned.len()));
+        return Err(anyhow!(
+            "address must be 20 bytes hex (got {} chars)",
+            cleaned.len()
+        ));
     }
     let bytes = hex::decode(cleaned)?;
     Ok(bytes.try_into().expect("len checked"))
@@ -90,20 +93,27 @@ impl Config {
             api_base: network.api_base().to_string(),
             signal_socket: env::var("EXECUTOR_SIGNAL_SOCKET")
                 .unwrap_or_else(|_| "/tmp/hip4-exec.sock".into()),
-            control_host: env::var("EXECUTOR_CONTROL_HOST")
-                .unwrap_or_else(|_| "127.0.0.1".into()),
+            control_host: env::var("EXECUTOR_CONTROL_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
             control_port: env::var("EXECUTOR_CONTROL_PORT")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8765),
             max_open_legs: env::var("RISK_MAX_OPEN_LEGS")
-                .ok().and_then(|s| s.parse().ok()).unwrap_or(20),
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20),
             max_gross_notional_usd: env::var("RISK_MAX_GROSS_NOTIONAL_USD")
-                .ok().and_then(|s| s.parse().ok()).unwrap_or(250_000.0),
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(250_000.0),
             max_perp_btc: env::var("RISK_MAX_PERP_BTC")
-                .ok().and_then(|s| s.parse().ok()).unwrap_or(10.0),
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10.0),
             per_leg_notional_usd: env::var("RISK_PER_LEG_NOTIONAL_USD")
-                .ok().and_then(|s| s.parse().ok()).unwrap_or(10_000.0),
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10_000.0),
         })
     }
 }

@@ -52,9 +52,18 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "PL"]
 ignore = [
-    "E501",   # line length handled by formatter
-    "PLR0913", # too many args (signal/feed have many tunables)
+    "E501",    # line length handled by formatter
+    "E701",    # one-line `for x: pass` is fine in tiny test loops
+    "E702",    # ditto for `;`-joined imports inside renderer scaffolding
+    "PLR0913", # too many args (signal / feed have many tunables)
     "PLR2004", # magic numbers (lots of pricing constants)
+    "PLR0912", # too many branches in feed.snapshot — intentional dispatch
+    "PLR0915", # too many statements in feed.snapshot
+    "PLR1714", # comparing in chains (test fixtures)
+    "PLR1736", # unnecessary-list-index-lookup (test ergonomics)
+    "PLW2901", # loop variable rebinding (parser hot loops)
+    "PLC0415", # local imports (used to break circular imports between sim ↔ pricing)
+    "SIM105",  # suppressible-exception — explicit `try/except: continue` reads cleaner
 ]
 
 [tool.mypy]
@@ -66,4 +75,3 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
-asyncio_mode = "auto"

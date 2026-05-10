@@ -20,7 +20,7 @@ import numpy as np
 
 from .contracts import BinaryMarket, TernaryMarket, assemble_binary_markets, synthesise_ternaries
 from .data_loader import CSVReplay
-from .hl_client import HLClient, L2Book
+from .hl_client import HLClient
 from .hl_ws import BookCache, WSRunner
 from .pricing import (
     BinaryEdge,

@@ -12,8 +12,8 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import plotly.io as pio
 import plotly.graph_objects as go
+import plotly.io as pio
 
 from src.feed import Feed
 from src.surface import _grid_from_snapshot, _surface_traces, build_alpha_pnl

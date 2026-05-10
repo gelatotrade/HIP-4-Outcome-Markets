@@ -19,7 +19,7 @@ Colour code:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import plotly.graph_objects as go
@@ -42,7 +42,7 @@ def _hours_to_expiry(iso: str) -> float:
         dt = datetime.fromisoformat(iso)
     except ValueError:
         return 0.0
-    return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds() / 3600)
+    return max(0.0, (dt - datetime.now(UTC)).total_seconds() / 3600)
 
 
 def _grid_from_snapshot(snap: MarketSnapshot) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -199,7 +199,7 @@ def build_alpha_pnl(history: list[MarketSnapshot]) -> go.Figure:
     for k, h in enumerate(history):
         if k == 0:
             cumulative.append(0.0); continue
-        dt = max(history[k].ts - history[k-1].ts, 0.0)
+        dt = max(h.ts - history[k-1].ts, 0.0)
         acc += history[k-1].statarb.expected_pnl_day_total * dt / 86_400.0
         cumulative.append(acc)
 

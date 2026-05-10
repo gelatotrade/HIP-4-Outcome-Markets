@@ -26,29 +26,40 @@ pub struct ProposedLeg {
     pub perp_delta_btc: f64,
 }
 
-pub fn check(cfg: &Config, book: &BookSnapshot, killed: bool, leg: ProposedLeg)
-    -> Result<(), RiskError>
-{
+pub fn check(
+    cfg: &Config,
+    book: &BookSnapshot,
+    killed: bool,
+    leg: ProposedLeg,
+) -> Result<(), RiskError> {
     if killed {
         return Err(RiskError::Killed);
     }
     if leg.notional_usd > cfg.per_leg_notional_usd {
         return Err(RiskError::LegNotional {
-            requested: leg.notional_usd, max: cfg.per_leg_notional_usd,
+            requested: leg.notional_usd,
+            max: cfg.per_leg_notional_usd,
         });
     }
     if book.n_legs + 1 > cfg.max_open_legs {
-        return Err(RiskError::MaxLegs { current: book.n_legs, max: cfg.max_open_legs });
+        return Err(RiskError::MaxLegs {
+            current: book.n_legs,
+            max: cfg.max_open_legs,
+        });
     }
     if book.gross_notional + leg.notional_usd > cfg.max_gross_notional_usd {
         return Err(RiskError::MaxNotional {
-            current: book.gross_notional, add: leg.notional_usd,
+            current: book.gross_notional,
+            add: leg.notional_usd,
             max: cfg.max_gross_notional_usd,
         });
     }
     let would_be = book.perp_btc + leg.perp_delta_btc;
     if would_be.abs() > cfg.max_perp_btc {
-        return Err(RiskError::MaxPerp { would_be, max: cfg.max_perp_btc });
+        return Err(RiskError::MaxPerp {
+            would_be,
+            max: cfg.max_perp_btc,
+        });
     }
     Ok(())
 }
@@ -78,48 +89,82 @@ mod tests {
 
     fn book(n: usize, gross: f64, perp: f64) -> BookSnapshot {
         BookSnapshot {
-            n_legs: n, perp_btc: perp, gross_notional: gross,
-            submitted: 0, rejected: 0, last_error: None, legs: vec![],
+            n_legs: n,
+            perp_btc: perp,
+            gross_notional: gross,
+            submitted: 0,
+            rejected: 0,
+            last_error: None,
+            legs: vec![],
         }
     }
 
     #[test]
     fn allows_within_caps() {
-        let leg = ProposedLeg { notional_usd: 5_000.0, perp_delta_btc: 0.5 };
+        let leg = ProposedLeg {
+            notional_usd: 5_000.0,
+            perp_delta_btc: 0.5,
+        };
         assert!(check(&cfg(), &book(0, 0.0, 0.0), false, leg).is_ok());
     }
 
     #[test]
     fn rejects_when_killed() {
-        let leg = ProposedLeg { notional_usd: 1.0, perp_delta_btc: 0.0 };
-        assert!(matches!(check(&cfg(), &book(0, 0.0, 0.0), true, leg), Err(RiskError::Killed)));
+        let leg = ProposedLeg {
+            notional_usd: 1.0,
+            perp_delta_btc: 0.0,
+        };
+        assert!(matches!(
+            check(&cfg(), &book(0, 0.0, 0.0), true, leg),
+            Err(RiskError::Killed)
+        ));
     }
 
     #[test]
     fn rejects_oversize_leg() {
-        let leg = ProposedLeg { notional_usd: 20_000.0, perp_delta_btc: 0.0 };
-        assert!(matches!(check(&cfg(), &book(0, 0.0, 0.0), false, leg),
-                         Err(RiskError::LegNotional { .. })));
+        let leg = ProposedLeg {
+            notional_usd: 20_000.0,
+            perp_delta_btc: 0.0,
+        };
+        assert!(matches!(
+            check(&cfg(), &book(0, 0.0, 0.0), false, leg),
+            Err(RiskError::LegNotional { .. })
+        ));
     }
 
     #[test]
     fn rejects_when_max_legs_exceeded() {
-        let leg = ProposedLeg { notional_usd: 1_000.0, perp_delta_btc: 0.0 };
-        assert!(matches!(check(&cfg(), &book(5, 0.0, 0.0), false, leg),
-                         Err(RiskError::MaxLegs { .. })));
+        let leg = ProposedLeg {
+            notional_usd: 1_000.0,
+            perp_delta_btc: 0.0,
+        };
+        assert!(matches!(
+            check(&cfg(), &book(5, 0.0, 0.0), false, leg),
+            Err(RiskError::MaxLegs { .. })
+        ));
     }
 
     #[test]
     fn rejects_when_gross_notional_exceeded() {
-        let leg = ProposedLeg { notional_usd: 9_000.0, perp_delta_btc: 0.0 };
-        assert!(matches!(check(&cfg(), &book(2, 45_000.0, 0.0), false, leg),
-                         Err(RiskError::MaxNotional { .. })));
+        let leg = ProposedLeg {
+            notional_usd: 9_000.0,
+            perp_delta_btc: 0.0,
+        };
+        assert!(matches!(
+            check(&cfg(), &book(2, 45_000.0, 0.0), false, leg),
+            Err(RiskError::MaxNotional { .. })
+        ));
     }
 
     #[test]
     fn rejects_when_perp_cap_exceeded() {
-        let leg = ProposedLeg { notional_usd: 1_000.0, perp_delta_btc: 1.6 };
-        assert!(matches!(check(&cfg(), &book(0, 0.0, 0.5), false, leg),
-                         Err(RiskError::MaxPerp { .. })));
+        let leg = ProposedLeg {
+            notional_usd: 1_000.0,
+            perp_delta_btc: 1.6,
+        };
+        assert!(matches!(
+            check(&cfg(), &book(0, 0.0, 0.5), false, leg),
+            Err(RiskError::MaxPerp { .. })
+        ));
     }
 }

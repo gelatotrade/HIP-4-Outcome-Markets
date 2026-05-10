@@ -26,7 +26,7 @@ For each market we therefore:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .contracts import BinaryMarket
 from .pricing import (
@@ -79,7 +79,7 @@ def evaluate_book(
     hedge_ratio: float = 1.0,
     notional_per_leg: float = NOTIONAL_PER_LEG,
 ) -> StatArbResult:
-    out = StatArbResult(ts=datetime.now(timezone.utc).timestamp(), spot=spot, sigma_rv=sigma_rv)
+    out = StatArbResult(ts=datetime.now(UTC).timestamp(), spot=spot, sigma_rv=sigma_rv)
     for b in binaries:
         mid = b.yes_mid
         T = b.t_to_expiry_years

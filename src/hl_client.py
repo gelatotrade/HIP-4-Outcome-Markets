@@ -26,7 +26,10 @@ from typing import Any
 
 import httpx
 from tenacity import (
-    retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
 )
 
 from .rate_limit import INFO_LIMITER, TokenBucket

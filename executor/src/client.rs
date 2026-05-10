@@ -50,12 +50,18 @@ impl HlClient {
             action: &action,
             nonce,
             signature,
-            vault_address: self.cfg.vault_address.as_ref().map(|a| format!("0x{}", hex::encode(a))),
+            vault_address: self
+                .cfg
+                .vault_address
+                .as_ref()
+                .map(|a| format!("0x{}", hex::encode(a))),
         };
         let url = format!("{}/exchange", self.cfg.api_base);
         let resp = self.http.post(&url).json(&req).send().await?;
         let status = resp.status();
-        let body: serde_json::Value = resp.json().await
+        let body: serde_json::Value = resp
+            .json()
+            .await
             .map_err(|e| anyhow!("decode body ({}): {e}", status))?;
         if !status.is_success() {
             return Err(anyhow!("exchange http {}: {body}", status));
@@ -68,9 +74,10 @@ impl HlClient {
         Ok(parsed)
     }
 
-    pub async fn info<T: for<'de> serde::Deserialize<'de>>(&self, payload: serde_json::Value)
-        -> Result<T>
-    {
+    pub async fn info<T: for<'de> serde::Deserialize<'de>>(
+        &self,
+        payload: serde_json::Value,
+    ) -> Result<T> {
         let url = format!("{}/info", self.cfg.api_base);
         let resp = self.http.post(&url).json(&payload).send().await?;
         Ok(resp.json::<T>().await?)

@@ -35,7 +35,6 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import imageio.v2 as imageio
 import plotly.graph_objects as go
 import plotly.io as pio
 from PIL import Image, ImageDraw, ImageFont
@@ -43,7 +42,6 @@ from PIL import Image, ImageDraw, ImageFont
 from src.feed import Feed, MarketSnapshot
 from src.simulator import fast_forward
 from src.surface import _grid_from_snapshot, _surface_traces, build_alpha_pnl
-
 
 FRAME_W = 1400
 FRAME_H = 920
