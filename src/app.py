@@ -13,17 +13,20 @@ Run fully offline (synthetic drifting universe):
 from __future__ import annotations
 
 import argparse
-import logging
-import os
 from datetime import datetime
 
 import dash
 from dash import Input, Output, State, dash_table, dcc, html
+from flask import jsonify
 
+from .config import CONFIG
 from .feed import Feed
+from .logging_config import get as get_logger
+from .logging_config import setup as setup_logging
 from .surface import build_alpha_pnl, build_alpha_surface, build_opportunities
 
-logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+setup_logging(CONFIG.log_level)
+log = get_logger("dashboard")
 
 
 def make_app(*, allow_live: bool, csv_path: str | None, refresh_ms: int) -> dash.Dash:
@@ -162,14 +165,36 @@ def make_app(*, allow_live: bool, csv_path: str | None, refresh_ms: int) -> dash
             status,
         )
 
+    # ------ Health endpoint for Docker / k8s liveness probes ------
+    @app.server.route("/healthz")
+    def _healthz():                                                 # type: ignore[no-redef]
+        last = feed.history[-1] if feed.history else None
+        return jsonify({
+            "status": "ok",
+            "source": last.source if last else "starting",
+            "spot": last.spot if last else None,
+            "history_len": len(feed.history),
+            "active_legs": last.statarb.n_active if last else 0,
+        })
+
     return app
+
+
+# Module-level WSGI server exposed for gunicorn:
+#   gunicorn src.app:server
+_default_app = make_app(
+    allow_live=CONFIG.user_address is not None,
+    csv_path=None,
+    refresh_ms=CONFIG.dashboard_refresh_ms,
+)
+server = _default_app.server
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="HIP-4 animated alpha surface")
-    parser.add_argument("--port", type=int, default=8050)
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--refresh-ms", type=int, default=2000)
+    parser.add_argument("--port", type=int, default=CONFIG.dashboard_port)
+    parser.add_argument("--host", default=CONFIG.dashboard_host)
+    parser.add_argument("--refresh-ms", type=int, default=CONFIG.dashboard_refresh_ms)
     parser.add_argument("--no-live", action="store_true",
                         help="Skip the Hyperliquid API; use the simulator")
     parser.add_argument("--csv", default=None,
@@ -180,6 +205,8 @@ def main() -> None:
         csv_path=args.csv,
         refresh_ms=args.refresh_ms,
     )
+    log.info("dashboard.start", host=args.host, port=args.port,
+             source="csv" if args.csv else ("sim" if args.no_live else "live"))
     app.run(host=args.host, port=args.port, debug=False)
 
 
