@@ -1,4 +1,5 @@
 httpx>=0.27
+websockets>=12.0
 numpy>=1.26
 scipy>=1.11
 pandas>=2.1
@@ -8,3 +9,6 @@ python-dateutil>=2.9
 kaleido>=1.0
 Pillow>=10.0
 imageio>=2.34
+gunicorn>=22.0
+tenacity>=8.3
+structlog>=24.1

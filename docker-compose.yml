@@ -1,0 +1,40 @@
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hip4-dashboard:latest
+    container_name: hip4-dashboard
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${DASHBOARD_PORT:-8050}:8050"
+    volumes:
+      # share the unix socket with the executor
+      - exec-ipc:/var/run/hip4
+      # let the dashboard read user-captured CSV tapes
+      - ./data:/app/data:ro
+    environment:
+      - EXECUTOR_SIGNAL_SOCKET=/var/run/hip4/exec.sock
+    depends_on:
+      - executor
+
+  executor:
+    build:
+      context: ./executor
+      dockerfile: Dockerfile
+    image: hip4-executor:latest
+    container_name: hip4-executor
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${EXECUTOR_CONTROL_PORT:-8765}:8765"
+    volumes:
+      - exec-ipc:/var/run/hip4
+    environment:
+      - EXECUTOR_SIGNAL_SOCKET=/var/run/hip4/exec.sock
+      - EXECUTOR_CONTROL_HOST=0.0.0.0
+      - RUST_LOG=info,executor=debug
+
+volumes:
+  exec-ipc:

@@ -2,9 +2,25 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+venv/
 .env
 .idea/
 .vscode/
 .DS_Store
 /dist/
 /build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Rust
+executor/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Project-specific
+data/
+*.gif.tmp
