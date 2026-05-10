@@ -21,6 +21,7 @@ import numpy as np
 from .contracts import BinaryMarket, TernaryMarket, assemble_binary_markets, synthesise_ternaries
 from .data_loader import CSVReplay
 from .hl_client import HLClient, L2Book
+from .hl_ws import BookCache, WSRunner
 from .pricing import (
     BinaryEdge,
     StripDensity,
@@ -64,9 +65,14 @@ class Feed:
         threshold_vol: float = 0.05,
         hedge_ratio: float = 1.0,
         notional_per_leg: float = 10_000.0,
+        use_websocket: bool = True,
     ) -> None:
         self._client = HLClient() if allow_live and not csv_path else None
         self._csv = CSVReplay(csv_path) if csv_path else None
+        self._ws_cache: BookCache | None = None
+        self._ws_runner: WSRunner | None = None
+        self._ws_subscribed_coins: set[str] = set()
+        self._use_ws = use_websocket and self._client is not None
         self._spot_history: list[tuple[float, float]] = []
         self.history: deque[MarketSnapshot] = deque(maxlen=history_len)
         self.vol_window_s = vol_window_s
@@ -125,12 +131,23 @@ class Feed:
         elif self._client is not None:
             try:
                 assets = self._client.outcome_meta()
-                if assets:
+                if assets and self._use_ws:
+                    self._ensure_ws(assets)
+                    assert self._ws_cache is not None
+                    for a in assets:
+                        b = self._ws_cache.get(a.coin)
+                        if b is not None:
+                            books[a.coin] = b
+                    spot = self._ws_cache.get_mid("BTC")
+                    source = "live-ws"
+                elif assets:
+                    # WS disabled / first call before WS warm — fall back to HTTP polling
                     for a in assets:
                         b = self._client.l2_book(a.coin)
                         if b is not None:
                             books[a.coin] = b
-                spot = self._client.perp_mid("BTC")
+                if spot is None:
+                    spot = self._client.perp_mid("BTC")
             except Exception as exc:                                # noqa: BLE001
                 error = f"live fetch failed: {exc}"
                 log.warning(error)
@@ -217,6 +234,25 @@ class Feed:
         self.history.append(snap)
         return snap
 
+    def _ensure_ws(self, assets: list) -> None:                     # type: ignore[override]
+        coins_now = {a.coin for a in assets} | {"BTC"}
+        if self._ws_runner is None:
+            self._ws_cache = BookCache()
+            self._ws_runner = WSRunner(coins=sorted(coins_now), cache=self._ws_cache)
+            self._ws_subscribed_coins = coins_now
+            self._ws_runner.start()
+        elif coins_now - self._ws_subscribed_coins:
+            # The outcome universe changed (new strike / expiry rolled in).
+            # Restart with the union of subscribed coins.
+            new_set = self._ws_subscribed_coins | coins_now
+            self._ws_runner.stop()
+            self._ws_cache = BookCache() if self._ws_cache is None else self._ws_cache
+            self._ws_runner = WSRunner(coins=sorted(new_set), cache=self._ws_cache)
+            self._ws_subscribed_coins = new_set
+            self._ws_runner.start()
+
     def close(self) -> None:
+        if self._ws_runner is not None:
+            self._ws_runner.stop()
         if self._client is not None:
             self._client.close()

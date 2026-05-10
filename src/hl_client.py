@@ -25,6 +25,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from tenacity import (
+    retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter,
+)
+
+from .rate_limit import INFO_LIMITER, TokenBucket
 
 INFO_URL = "https://api.hyperliquid.xyz/info"
 DEFAULT_TIMEOUT = 6.0
@@ -103,19 +108,41 @@ class HLClient:
         timeout: float = DEFAULT_TIMEOUT,
         *,
         user_address: str | None = None,
+        limiter: TokenBucket | None = None,
     ) -> None:
-        self._client = httpx.Client(timeout=timeout)
+        self._client = httpx.Client(
+            timeout=timeout,
+            limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
+        )
         self._base_url = base_url
+        self._limiter = limiter or INFO_LIMITER
         self.user_address = user_address or os.environ.get(ENV_USER_ADDRESS)
         self.has_wallet_key = bool(os.environ.get(ENV_WALLET_KEY))
         self.last_error: str | None = None
 
+    @retry(
+        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+        wait=wait_exponential_jitter(initial=0.2, max=4.0),
+        stop=stop_after_attempt(4),
+        reraise=True,
+    )
+    def _post_raw(self, payload: dict[str, Any]) -> Any:
+        # Rate-limit before every attempt so retries also wait for tokens.
+        self._limiter.acquire(1)
+        r = self._client.post(self._base_url, json=payload)
+        # 429 = explicit rate limit signal from HL; raise to retry.
+        if r.status_code in (429, 503):
+            raise httpx.HTTPStatusError(
+                f"http {r.status_code}", request=r.request, response=r,
+            )
+        r.raise_for_status()
+        return r.json()
+
     def _post(self, payload: dict[str, Any]) -> Any:
         try:
-            r = self._client.post(self._base_url, json=payload)
-            r.raise_for_status()
+            data = self._post_raw(payload)
             self.last_error = None
-            return r.json()
+            return data
         except (httpx.HTTPError, ValueError) as exc:
             self.last_error = f"{type(exc).__name__}: {exc}"
             log.warning("HL request failed (%s): %s", payload.get("type"), exc)
