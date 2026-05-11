@@ -33,6 +33,8 @@ class Signal:
     perp_delta_btc: float
     perp_asset: int
     ts_ms: int
+    perp_ref_px: float = 0.0     # BTC perp mid at signal time (required for hedge)
+    slippage_bps: int = 50       # IOC slippage budget (1 bp = 0.01%)
     ttl_ms: int = 0
 
 

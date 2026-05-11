@@ -13,6 +13,10 @@ pub struct LegState {
     pub size: f64,
     pub avg_px: f64,
     pub direction: i8, // +1 long, -1 short
+    /// Resting / filled order ids returned by /exchange. Used to cancel
+    /// or correlate with subsequent fills.
+    #[serde(default)]
+    pub oids: Vec<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -29,8 +33,30 @@ impl Book {
         self.legs.write().insert(leg.asset, leg);
     }
 
+    pub fn attach_oids(&self, asset: u32, oids: &[u64]) {
+        if let Some(leg) = self.legs.write().get_mut(&asset) {
+            for o in oids {
+                if !leg.oids.contains(o) {
+                    leg.oids.push(*o);
+                }
+            }
+        }
+    }
+
     pub fn close_leg(&self, asset: u32) {
         self.legs.write().remove(&asset);
+    }
+
+    /// Replace every tracked leg in one shot. Used by the reconciliation
+    /// loop so the book is always the source-of-truth from /info.
+    pub fn replace_all(&self, legs: Vec<LegState>, perp_btc: f64) {
+        let mut w = self.legs.write();
+        w.clear();
+        for l in legs {
+            w.insert(l.asset, l);
+        }
+        drop(w);
+        *self.perp_btc.write() = perp_btc;
     }
 
     pub fn set_perp_btc(&self, p: f64) {
