@@ -15,6 +15,8 @@ pub struct Config {
     pub signal_socket: String,
     pub control_host: String,
     pub control_port: u16,
+    pub state_dir: String,
+    pub reconcile_interval_secs: u64,
 
     pub max_open_legs: usize,
     pub max_gross_notional_usd: f64,
@@ -98,6 +100,11 @@ impl Config {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(8765),
+            state_dir: env::var("EXECUTOR_STATE_DIR").unwrap_or_else(|_| "/var/lib/hip4".into()),
+            reconcile_interval_secs: env::var("EXECUTOR_RECONCILE_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
             max_open_legs: env::var("RISK_MAX_OPEN_LEGS")
                 .ok()
                 .and_then(|s| s.parse().ok())

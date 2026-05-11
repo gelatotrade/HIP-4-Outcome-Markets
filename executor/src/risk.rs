@@ -80,6 +80,8 @@ mod tests {
             signal_socket: "/tmp/x".into(),
             control_host: "127.0.0.1".into(),
             control_port: 8765,
+            state_dir: "/tmp/hip4-test".into(),
+            reconcile_interval_secs: 5,
             max_open_legs: 5,
             max_gross_notional_usd: 50_000.0,
             max_perp_btc: 2.0,

@@ -33,6 +33,11 @@ from .pricing import (
 from .simulator import current_realised_vol, synthetic_universe
 from .statarb import StatArbResult, evaluate_book
 
+try:
+    from .signal_emitter import SignalEmitter  # type: ignore[unused-ignore]
+except ImportError:                              # pragma: no cover
+    SignalEmitter = None                         # type: ignore[assignment]
+
 log = logging.getLogger(__name__)
 
 REALIZED_VOL_DEFAULT = 0.65
@@ -80,6 +85,7 @@ class Feed:
         self.hedge_ratio = hedge_ratio
         self.notional_per_leg = notional_per_leg
         self._last_snapshot: MarketSnapshot | None = None
+        self._emitter = SignalEmitter() if SignalEmitter is not None else None
 
     # -- knobs settable from the dashboard -------------------------------
 
@@ -232,6 +238,12 @@ class Feed:
         )
         self._last_snapshot = snap
         self.history.append(snap)
+        # Fire-and-forget glue to the Rust executor (no-op if trading disabled).
+        if self._emitter is not None:
+            try:
+                self._emitter.on_snapshot(snap)
+            except Exception:                                       # noqa: BLE001
+                log.exception("signal_emitter raised")
         return snap
 
     def _ensure_ws(self, assets: list) -> None:                     # type: ignore[override]

@@ -46,6 +46,15 @@ pub struct Signal {
     pub perp_delta_btc: f64,
     /// Asset id of BTC perp (for the hedge order)
     pub perp_asset: u32,
+    /// Current BTC perp mid in USD (engine-side reference for hedge pricing).
+    /// `None`/`0` ⇒ executor refuses the hedge.
+    #[serde(default)]
+    pub perp_ref_px: f64,
+    /// Slippage budget for the IOC hedge, basis points (10 bps = 0.1%).
+    /// Buy hedges pay up to `mid * (1+bps)`; sell hedges accept down to
+    /// `mid * (1-bps)`. Default 50 bps if 0.
+    #[serde(default)]
+    pub slippage_bps: u32,
     /// Engine timestamp (ms since epoch); the executor rejects stale signals
     pub ts_ms: u64,
     /// TTL in ms (0 = no expiry)
